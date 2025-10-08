@@ -42,6 +42,9 @@ jobs:
           format: 'sarif'
           output: trivy-report.sarif
           ignore-unfixed: true
+          exit-code: 1
+
+          
 
       # 🧠 Scan image with Grype
       - name: Grype vulnerability scan
@@ -52,6 +55,7 @@ jobs:
           fail-build: false # set true if you want to block pipeline
           output-format: sarif
           output-file: grype-report.sarif
+          
 
       # 💾 Upload vulnerability reports as artifacts
       - name: Upload security scan reports

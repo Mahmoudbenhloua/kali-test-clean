@@ -15,7 +15,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Set up Python (optional, if you have tests)
+      # 2️⃣ Set up Python (optional, for tests)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -33,34 +33,44 @@ jobs:
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # 6️⃣ Start Loki
+      # 6️⃣ Start Loki (for pushing JSON logs)
       - name: Start Loki
         run: docker run -d --name loki -p 3100:3100 grafana/loki:2.9.0
 
-      # 7️⃣ Run Trivy scan and save JSON
-      - name: Run Trivy scan
-        run: |
-          docker run --rm \
-            -v $PWD:/app \
-            ghcr.io/aquasecurity/trivy:latest image --format json --output trivy-report.json ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
+      # 7️⃣ Run Trivy scan (JSON output for Grafana)
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
+          format: json
+          output: trivy-report.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
 
-      # 8️⃣ Run Grype scan and save JSON
-      - name: Run Grype scan
-        run: |
-          docker run --rm \
-            -v $PWD:/app \
-            anchore/grype:latest ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} -o json > grype-report.json || true
+      # 8️⃣ Run Grype scan (JSON output for Grafana)
+      - name: Grype vulnerability scan
+        uses: anchore/scan-action@v3
+        with:
+          image: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
+          severity-cutoff: high
+          fail-build: false
+          output-format: json
+          output-file: grype-report.json
 
-      # 🔗 Push Trivy JSON to Loki
+      # 9️⃣ Upload security scan reports as artifacts
+      - name: Upload security scan reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            trivy-report.json
+            grype-report.json
+
+      # 🔟 Push Trivy JSON to Loki
       - name: Push Trivy JSON to Loki
         run: |
-          # Start Loki container if not running
-          docker ps | grep loki || docker run -d --name loki -p 3100:3100 grafana/loki:2.9.0
-          
-          # Wait for Loki to be ready
           sleep 15
-          
-          # Push Trivy JSON
           curl -X POST http://localhost:3100/loki/api/v1/push \
             -H "Content-Type: application/json" \
             -d '{
@@ -75,7 +85,7 @@ jobs:
               ]
             }'
 
-      # 🔗 Push Grype JSON to Loki
+      # 1️⃣1️⃣ Push Grype JSON to Loki
       - name: Push Grype JSON to Loki
         run: |
           curl -X POST http://localhost:3100/loki/api/v1/push \

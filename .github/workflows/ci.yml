@@ -46,20 +46,22 @@ jobs:
             # After Trivy scan step
       - name: Push Trivy JSON to Loki
         run: |
-          curl -X POST http://<LOKI_HOST>:3100/loki/api/v1/push \
+          curl -X POST http://localhost:3100/loki/api/v1/push \
             -H "Content-Type: application/json" \
             -d '{
               "streams": [
                 {
                   "labels": "{job=\"trivy\"}",
                   "entries": [
-                    {"ts": "'$(date --utc +%Y-%m-%dT%H:%M:%SZ)'" , "line": "'"$(cat trivy-report.json | jq -c .)"'"}
+                    {
+                      "ts": "'$(date --utc +%Y-%m-%dT%H:%M:%SZ)'",
+                      "line": "'"$(cat trivy-report.json | jq -c .)"'"
+                    }
                   ]
                 }
               ]
             }'
 
-          
 
       # 🧠 Scan image with Grype
       - name: Grype vulnerability scan

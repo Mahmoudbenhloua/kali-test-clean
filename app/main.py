@@ -5,10 +5,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from typing import Optional
-from app.metrics import register_metrics 
+
 
 app = FastAPI()
-register_metrics(app)
+
 
 # Static files and templates
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

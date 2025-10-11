@@ -48,15 +48,15 @@ jobs:
           ignore-unfixed: true
           exit-code: 1
 
-      # 8️⃣ Run Grype scan (JSON output for Grafana)
+        # 8️⃣ Run Grype scan (JSON output for Grafana)
       - name: Grype vulnerability scan
         uses: anchore/scan-action@v3
         with:
           image: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
           severity-cutoff: high
           fail-build: false
-          output-format: json
-          output-file: grype-report.json
+          output-format: json       
+          path: grype-report.json
 
       # 9️⃣ Upload security scan reports as artifacts
       - name: Upload security scan reports

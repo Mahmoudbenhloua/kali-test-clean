@@ -51,9 +51,16 @@ jobs:
             -v $PWD:/app \
             anchore/grype:latest ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} -o json > grype-report.json || true
 
-      # 9️⃣ Push Trivy JSON to Loki
+     # 🔗 Push Trivy JSON to Loki
       - name: Push Trivy JSON to Loki
         run: |
+          # Start Loki container if not running
+          docker ps | grep loki || docker run -d --name loki -p 3100:3100 grafana/loki:2.9.0
+          
+          # Wait for Loki to be ready
+          sleep 15
+          
+          # Push Trivy JSON
           curl -X POST http://localhost:3100/loki/api/v1/push \
             -H "Content-Type: application/json" \
             -d '{
@@ -68,7 +75,7 @@ jobs:
               ]
             }'
 
-      # 🔟 Push Grype JSON to Loki
+      # 🔗 Push Grype JSON to Loki
       - name: Push Grype JSON to Loki
         run: |
           curl -X POST http://localhost:3100/loki/api/v1/push \
@@ -84,16 +91,6 @@ jobs:
                 }
               ]
             }'
-
-      # 1️⃣1️⃣ Upload vulnerability reports as artifacts
-      - name: Upload security scan reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-reports
-          path: |
-            trivy-report.json
-            grype-report.json
-
       # 1️⃣2️⃣ Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3

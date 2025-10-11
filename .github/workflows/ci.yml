@@ -42,7 +42,7 @@ jobs:
         run: |
           docker run --rm \
             -v $PWD:/app \
-            aquasecurity/trivy:latest image --format json --output trivy-report.json ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
+            ghcr.io/aquasecurity/trivy:latest image --format json --output trivy-report.json ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
 
       # 8️⃣ Run Grype scan and save JSON
       - name: Run Grype scan
@@ -51,7 +51,7 @@ jobs:
             -v $PWD:/app \
             anchore/grype:latest ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} -o json > grype-report.json || true
 
-     # 🔗 Push Trivy JSON to Loki
+      # 🔗 Push Trivy JSON to Loki
       - name: Push Trivy JSON to Loki
         run: |
           # Start Loki container if not running
@@ -91,6 +91,7 @@ jobs:
                 }
               ]
             }'
+
       # 1️⃣2️⃣ Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3

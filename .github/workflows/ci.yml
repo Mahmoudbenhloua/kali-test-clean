@@ -43,6 +43,21 @@ jobs:
           output: trivy-report.sarif
           ignore-unfixed: true
           exit-code: 0
+            # After Trivy scan step
+      - name: Push Trivy JSON to Loki
+        run: |
+          curl -X POST http://<LOKI_HOST>:3100/loki/api/v1/push \
+            -H "Content-Type: application/json" \
+            -d '{
+              "streams": [
+                {
+                  "labels": "{job=\"trivy\"}",
+                  "entries": [
+                    {"ts": "'$(date --utc +%Y-%m-%dT%H:%M:%SZ)'" , "line": "'"$(cat trivy-report.json | jq -c .)"'"}
+                  ]
+                }
+              ]
+            }'
 
           
 

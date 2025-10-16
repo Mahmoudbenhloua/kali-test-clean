@@ -72,6 +72,30 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+            # 📤 Push vulnerability logs to Loki
+      - name: Push Trivy and Grype reports to Loki
+        if: always()  # ensures logs are sent even if a scan fails
+        run: |
+          echo "Sending reports to Loki..."
+          for report in trivy-report.sarif grype-report.sarif; do
+            if [ -f "$report" ]; then
+              curl -v -X POST ${{ secrets.LOKI_URL }}/loki/api/v1/push \
+                -H "Content-Type: application/json" \
+                --data-raw "{
+                  \"streams\": [
+                    {
+                      \"stream\": {\"job\": \"github-ci\", \"tool\": \"$report\"},
+                      \"values\": [
+                        [\"$(date +%s%N)\", \"$(cat $report | jq -c . | head -c 6000)\"] 
+                      ]
+                    }
+                  ]
+                }"
+            else
+              echo "⚠️ Report $report not found, skipping..."
+            fi
+          done
+
 
       # 🚀 Push image to DockerHub (only if all scans pass)
       - name: Push Docker image

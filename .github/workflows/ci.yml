@@ -6,9 +6,15 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  # Set these as GitHub Secrets
+  GRAFANA_LOKI_URL: https://logs-prod-us-central1.grafana.net
+  GRAFANA_USER_ID: ${{ secrets.GRAFANA_USER_ID }}
+  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+
 jobs:
   build-test-scan:
-    runs-on: self-hosted  # ← use your local runner so localhost:3100 works
+    runs-on: ubuntu-latest  # ← Changed to GitHub-hosted runner since we're using Grafana Cloud
 
     steps:
       # 🧩 Checkout source code
@@ -39,8 +45,8 @@ jobs:
         with:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
           severity: CRITICAL,HIGH
-          format: 'sarif'
-          output: trivy-report.sarif
+          format: 'json'
+          output: trivy-results.json
           ignore-unfixed: true
           exit-code: 0
 
@@ -51,8 +57,8 @@ jobs:
           image: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
           severity-cutoff: high
           fail-build: false
-          output-format: sarif
-          output-file: grype-report.sarif
+          output-format: json
+          output-file: grype-results.json
 
       # 💾 Upload vulnerability reports as artifacts
       - name: Upload security scan reports
@@ -60,8 +66,66 @@ jobs:
         with:
           name: security-reports
           path: |
-            trivy-report.sarif
-            grype-report.sarif
+            trivy-results.json
+            grype-results.json
+
+      # 📤 Push vulnerability logs to Grafana Cloud Loki
+      - name: Push scan results to Grafana Cloud
+        if: always()
+        run: |
+          echo "Sending security scan results to Grafana Cloud..."
+          
+          # Function to push data to Loki
+          push_to_loki() {
+            local tool=$1
+            local file=$2
+            local timestamp=$(date +%s000000000)
+            
+            if [ -f "$file" ]; then
+              # Create summary from JSON results
+              if [ "$tool" = "trivy" ]; then
+                CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' $file)
+                HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' $file)
+                SUMMARY="Trivy Scan: $CRITICAL_COUNT Critical, $HIGH_COUNT High vulnerabilities"
+              else
+                CRITICAL_COUNT=$(jq '.matches[]? | select(.vulnerability.severity == "Critical") | .vulnerability.id' $file | wc -l)
+                HIGH_COUNT=$(jq '.matches[]? | select(.vulnerability.severity == "High") | .vulnerability.id' $file | wc -l)
+                SUMMARY="Grype Scan: $CRITICAL_COUNT Critical, $HIGH_COUNT High vulnerabilities"
+              fi
+              
+              # Push summary to Loki
+              curl -X POST \
+                "$GRAFANA_LOKI_URL/loki/api/v1/push" \
+                -u "$GRAFANA_USER_ID:$GRAFANA_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d @- << EOF
+              {
+                "streams": [
+                  {
+                    "stream": {
+                      "job": "security-scans",
+                      "tool": "$tool",
+                      "repository": "${{ github.repository }}",
+                      "branch": "${{ github.ref }}",
+                      "commit": "${{ github.sha }}"
+                    },
+                    "values": [
+                      [ "$timestamp", "$SUMMARY" ]
+                    ]
+                  }
+                ]
+              }
+              EOF
+              
+              echo "✅ $tool results sent to Grafana Cloud"
+            else
+              echo "⚠️ $file not found, skipping $tool"
+            fi
+          }
+
+          # Push both scan results
+          push_to_loki "trivy" "trivy-results.json"
+          push_to_loki "grype" "grype-results.json"
 
       # 🐋 Log in to DockerHub
       - name: Log in to DockerHub
@@ -69,30 +133,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # 📤 Push vulnerability logs to Loki
-      - name: Push Trivy and Grype reports to Loki
-        if: always()  # ensures logs are sent even if a scan fails
-        run: |
-          echo "Sending reports to Loki..."
-          for report in trivy-report.sarif grype-report.sarif; do
-            if [ -f "$report" ]; then
-              curl -s -X POST http://localhost:3100/loki/api/v1/push \
-                -H "Content-Type: application/json" \
-                --data-raw "{
-                  \"streams\": [
-                    {
-                      \"stream\": {\"job\": \"github-ci\", \"tool\": \"$report\"},
-                      \"values\": [
-                        [\"$(date +%s%N)\", \"$(cat $report | jq -c . | head -c 6000)\"] 
-                      ]
-                    }
-                  ]
-                }"
-            else
-              echo "⚠️ Report $report not found, skipping..."
-            fi
-          done
 
       # 🚀 Push image to DockerHub (only if all scans pass)
       - name: Push Docker image

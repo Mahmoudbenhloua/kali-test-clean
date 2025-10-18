@@ -32,14 +32,17 @@ jobs:
           docker build -t "${DOCKERHUB_USERNAME}/kali-test:${GITHUB_SHA}" .
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: "${DOCKERHUB_USERNAME}/kali-test:${GITHUB_SHA}"
-          format: json
-          output: trivy-results.json
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: 0
+        run: |
+          docker pull ${DOCKERHUB_USERNAME}/kali-test:${GITHUB_SHA} || true
+          trivy image \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --format json \
+            --output trivy-results.json \
+            ${DOCKERHUB_USERNAME}/kali-test:${GITHUB_SHA}
+        env:
+          DOCKERHUB_USERNAME: mariobh
+          GITHUB_SHA: ${{ github.sha }}
 
       - name: Push scan results to Grafana Cloud
         if: always()

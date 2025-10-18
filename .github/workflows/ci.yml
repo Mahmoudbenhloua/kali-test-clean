@@ -96,14 +96,15 @@ jobs:
             echo "Payload: $payload"
 
             # Send to Grafana Loki
-            echo "$payload" | curl -s -o /dev/null -w "%{http_code}" -u "${GRAFANA_USER_ID}:${GRAFANA_API_KEY}" \
+            response_code=$(echo "$payload" | curl -s -o /dev/null -w "%{http_code}" -u "${GRAFANA_USER_ID}:${GRAFANA_API_KEY}" \
               -H "Content-Type: application/json" \
-              -d @- "${GRAFANA_LOKI_URL}/loki/api/v1/push" \
-              | { read status; if [ "$status" = "204" ] || [ "$status" = "200" ]; then echo "✅ $tool results sent (HTTP $status)"; else echo "❌ Loki push failed (HTTP $status)"; cat <<EOF
-Response HTTP status: $status
-EOF
-fi; }
-
+              -d @- "${GRAFANA_LOKI_URL}/loki/api/v1/push")
+            
+            if [ "$response_code" = "204" ] || [ "$response_code" = "200" ]; then 
+              echo "✅ $tool results sent (HTTP $response_code)"
+            else 
+              echo "❌ Loki push failed (HTTP $response_code)"
+            fi
           }
 
           push_to_loki "trivy" "trivy-results.json"

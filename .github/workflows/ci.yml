@@ -1,72 +1,88 @@
-name: CI/CD Pipeline with Security Scans
+name: Security Scan and Push to Grafana Cloud
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
-
-env:
-  GRAFANA_LOKI_URL: https://logs-prod-012.grafana.net
-  GRAFANA_USER_ID: ${{ secrets.GRAFANA_USER_ID }}        # Your numeric ID from Users page
-  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}        # The API key you just created
 
 jobs:
-  build-test-scan:
+  security-scan:
     runs-on: ubuntu-latest
 
     steps:
-      # ... your existing steps (checkout, build, tests) ...
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # 🔍 Scan image with Trivy
-      - name: Trivy vulnerability scan
+      - name: Set up Trivy
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
+          format: json
+          output: trivy-results.json
           severity: CRITICAL,HIGH
-          format: 'json'
-          output: 'trivy-results.json'
           ignore-unfixed: true
-          exit-code: 0
 
-      # 📤 Push results to Grafana Cloud
-      - name: Push Trivy results to Grafana Cloud
-        if: always()
+      - name: Run Grype scan
         run: |
-          echo "Pushing Trivy results to Grafana Cloud..."
-          
-          TIMESTAMP=$(date +%s000000000)
-          
-          if [ -f "trivy-results.json" ]; then
-            # Count vulnerabilities
-            CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-results.json || echo "0")
-            HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-results.json || echo "0")
-            
-            # Push to Grafana Cloud Loki
-            curl -X POST \
-              "$GRAFANA_LOKI_URL/loki/api/v1/push" \
-              -u "$GRAFANA_USER_ID:$GRAFANA_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d @- << EOF
-          {
-            "streams": [
-              {
-                "stream": {
-                  "job": "security-scans",
-                  "tool": "trivy",
-                  "repository": "${{ github.repository }}",
-                  "commit": "${{ github.sha }}"
-                },
-                "values": [
-                  [ "$TIMESTAMP", "Trivy Scan Results: $CRITICAL_COUNT Critical, $HIGH_COUNT High vulnerabilities" ]
-                ]
-              }
-            ]
-          }
-          EOF
-            echo "✅ Trivy results sent to Grafana Cloud"
-          else
-            echo "❌ trivy-results.json not found"
-          fi
+          docker run --rm \
+            -v $(pwd):/work \
+            anchore/grype:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} -o json > grype-results.json
 
-      # ... your other steps (Docker push, etc) ...
+      - name: Push scan results to Grafana Cloud
+        if: always()
+        env:
+          GRAFANA_USER_ID: ${{ secrets.GRAFANA_USER_ID }}
+          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+          GRAFANA_LOKI_URL: https://logs-prod-012.grafana.net
+        run: |
+          echo "Sending security scan results to Grafana Cloud..."
+
+          push_to_loki() {
+            local tool=$1
+            local file=$2
+            local timestamp=$(date +%s000000000)
+
+            if [ -f "$file" ]; then
+              if [ "$tool" = "trivy" ]; then
+                CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' "$file")
+                HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' "$file")
+                SUMMARY="Trivy Scan: $CRITICAL_COUNT Critical, $HIGH_COUNT High vulnerabilities"
+              else
+                CRITICAL_COUNT=$(jq '.matches[]? | select(.vulnerability.severity == "Critical") | .vulnerability.id' "$file" | wc -l)
+                HIGH_COUNT=$(jq '.matches[]? | select(.vulnerability.severity == "High") | .vulnerability.id' "$file" | wc -l)
+                SUMMARY="Grype Scan: $CRITICAL_COUNT Critical, $HIGH_COUNT High vulnerabilities"
+              fi
+
+              # Push to Loki (Grafana Cloud)
+              curl -X POST "$GRAFANA_LOKI_URL/loki/api/v1/push" \
+                -u "$GRAFANA_USER_ID:$GRAFANA_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d @- <<EOF
+{
+  "streams": [
+    {
+      "stream": {
+        "job": "security-scans",
+        "tool": "$tool",
+        "repository": "${{ github.repository }}",
+        "branch": "${{ github.ref_name }}",
+        "commit": "${{ github.sha }}"
+      },
+      "values": [
+        [ "$timestamp", "$SUMMARY" ]
+      ]
+    }
+  ]
+}
+EOF
+
+              echo "✅ $tool results sent to Grafana Cloud"
+            else
+              echo "⚠️ File $file not found, skipping $tool"
+            fi
+          }
+
+          push_to_loki "trivy" "trivy-results.json"
+          push_to_loki "grype" "grype-results.json"

@@ -42,18 +42,7 @@ jobs:
           ignore-unfixed: true
           exit-code: 0
 
-      - name: Grype vulnerability scan (container)
-        run: |
-          docker run --rm -v "${{ github.workspace }}":/work anchore/grype:latest \
-            ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} -o json > grype-results.json
-
-      - name: Upload security scan reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-reports
-          path: |
-            trivy-results.json
-            grype-results.json
+      
 
       - name: Push scan results to Grafana Cloud
         if: always()
@@ -108,7 +97,7 @@ jobs:
           }
 
           push_to_loki "trivy" "trivy-results.json"
-          push_to_loki "grype" "grype-results.json"
+          
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3

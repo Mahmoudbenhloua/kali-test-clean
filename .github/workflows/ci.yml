@@ -13,12 +13,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # Grafana Loki endpoint for your stack
+      # Hardcoded Grafana Loki credentials for testing only
       GRAFANA_LOKI_URL: https://logs-prod-012.grafana.net
-      # Injected from GitHub Secrets
-      GRAFANA_USER_ID: ${{ secrets.GRAFANA_USER_ID }}
-      GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      GRAFANA_USER_ID: 1367479
+      GRAFANA_API_KEY: glc_eyJvIjoiMTU2NDMxMCIsIm4iOiJzdGFjay0xNDA5Njg1LWhsLXJlYWQtdGVzdCIsImsiOiI4ODhjRWxGNHhIMmtYNkNRNTAxRW5CRzQiLCJtIjp7InIiOiJwcm9kLWV1LXdlc3QtMiJ9fQ==
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }} 
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
     steps:
@@ -30,19 +29,17 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t "${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}" .
+          docker build -t "${DOCKERHUB_USERNAME}/kali-test:${GITHUB_SHA}" .
 
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
+          image-ref: "${DOCKERHUB_USERNAME}/kali-test:${GITHUB_SHA}"
           format: json
           output: trivy-results.json
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: 0
-
-      
 
       - name: Push scan results to Grafana Cloud
         if: always()
@@ -71,12 +68,11 @@ jobs:
               SUMMARY="Grype Scan: ${CRITICAL_COUNT} Critical, ${HIGH_COUNT} High vulnerabilities"
             fi
 
-            # Build JSON payload using jq to avoid heredoc/quoting issues
             payload=$(jq -n \
               --arg tool "$tool" \
-              --arg repo "${{ github.repository }}" \
-              --arg branch "${{ github.ref_name }}" \
-              --arg commit "${{ github.sha }}" \
+              --arg repo "${GITHUB_REPOSITORY}" \
+              --arg branch "${GITHUB_REF_NAME}" \
+              --arg commit "${GITHUB_SHA}" \
               --arg timestamp "$timestamp" \
               --arg summary "$SUMMARY" \
               '{streams:[{stream:{job:"security-scans", tool:$tool, repository:$repo, branch:$branch, commit:$commit}, values:[[ $timestamp, $summary ]]}]}'
@@ -84,11 +80,11 @@ jobs:
 
             echo "Payload: $payload"
 
-            # Send to Grafana Loki
-            response_code=$(echo "$payload" | curl -s -o /dev/null -w "%{http_code}" -u "${GRAFANA_USER_ID}:${GRAFANA_API_KEY}" \
+            response_code=$(echo "$payload" | curl -s -o /dev/null -w "%{http_code}" \
+              -u "${GRAFANA_USER_ID}:${GRAFANA_API_KEY}" \
               -H "Content-Type: application/json" \
               -d @- "${GRAFANA_LOKI_URL}/loki/api/v1/push")
-            
+
             if [ "$response_code" = "204" ] || [ "$response_code" = "200" ]; then 
               echo "✅ $tool results sent (HTTP $response_code)"
             else 
@@ -97,15 +93,15 @@ jobs:
           }
 
           push_to_loki "trivy" "trivy-results.json"
-          
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: "${DOCKERHUB_USERNAME}"
+          password: "${DOCKERHUB_TOKEN}"
 
       - name: Push Docker image
         if: success()
         run: |
-          docker push "${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}"
+          docker push "${DOCKERHUB_USERNAME}/kali-test:${GITHUB_SHA}"
+

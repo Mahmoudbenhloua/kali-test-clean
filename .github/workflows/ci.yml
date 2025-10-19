@@ -9,31 +9,30 @@ on:
 jobs:
   build-test-scan:
     runs-on: ubuntu-latest
-
     steps:
-      # 🧩 Checkout source code
+      # Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 🐍 Set up Python
+      # Set up Python 3.11
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # 📦 Install dependencies
+      # Install project dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 🧪 Run tests
+      # Run Python tests (if any)
       - name: Run tests
         run: pytest || echo "No tests found, skipping..."
 
-      # 🐳 Build Docker image
+      # Build Docker image tagged with commit SHA
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # 🔍 Trivy vulnerability scan (JSON output for Prometheus)
+      # Run Trivy vulnerability scan with JSON output
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -42,8 +41,9 @@ jobs:
           format: json
           output: trivy-report.json
           ignore-unfixed: true
-          exit-code: 0  # don't block push
-      # 📤 Push Trivy report to Grafana Loki
+          exit-code: 0
+
+      # Push Trivy vulnerabilities as logs to Grafana Loki
       - name: Push Trivy vulnerabilities to Grafana Loki
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
@@ -51,40 +51,29 @@ jobs:
           REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
         run: |
-          TIMESTAMP=$(date +%s%N | cut -b1-13)
-          # Extract vulnerabilities array from Trivy JSON and create Loki stream entries
-          ENTRIES=$(jq -c --arg timestamp "$TIMESTAMP" --arg repo "$REPO" --arg commit "$COMMIT" '
-            .Results[]?.Vulnerabilities[]? | 
-            {stream: {job:"trivy-scan", repo:$repo, commit:$commit, severity:.Severity}, values: [[$timestamp, tostring]]} 
-          ' trivy-report.json)
-          
-          # Compose Loki push JSON payload
-          PAYLOAD="{\"streams\":["
-          first=true
-          for entry in $ENTRIES; do
-            if $first; then
-              PAYLOAD+=$entry
-              first=false
-            else
-              PAYLOAD+=","$entry
-            fi
-          done
-          PAYLOAD+="]}"
-          
-          # Send payload to Loki
-          curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $GRAFANA_API_KEY" \
-               --data "$PAYLOAD" \
-               $LOKI_URL/loki/api/v1/push
+          TIMESTAMP=$(date +%s%N)
+          # Extract vulnerabilities and format Loki streams
+          STREAMS=$(jq -c --arg repo "$REPO" --arg commit "$COMMIT" --arg timestamp "$TIMESTAMP" '
+            [ .Results[]?.Vulnerabilities[]? |
+              {stream: {job: "trivy-scan", repo: $repo, commit: $commit, severity: .Severity},
+               values: [[$timestamp, (. | tostring)]]}
+            ]' trivy-report.json)
 
+          PAYLOAD="{\"streams\":$STREAMS}"
 
-      # 🐋 Log in to DockerHub
+          curl -X POST "$LOKI_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $GRAFANA_API_KEY" \
+            --data "$PAYLOAD"
+
+      # Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 🚀 Push image to DockerHub
+      # Push Docker image to DockerHub
       - name: Push Docker image
         if: success()
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}

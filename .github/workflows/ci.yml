@@ -9,6 +9,7 @@ on:
 jobs:
   build-test-scan:
     runs-on: ubuntu-latest
+
     steps:
       # Checkout source code
       - name: Checkout code
@@ -20,19 +21,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Install project dependencies
+      # Install dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Run Python tests (if any)
+      # Run tests if present
       - name: Run tests
         run: pytest || echo "No tests found, skipping..."
 
-      # Build Docker image tagged with commit SHA
+      # Build Docker image with commit SHA tag
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # Run Trivy vulnerability scan with JSON output
+      # Run Trivy vulnerability scan outputting JSON report
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -43,27 +44,25 @@ jobs:
           ignore-unfixed: true
           exit-code: 0
 
-      # Push Trivy vulnerabilities as logs to Grafana Loki
+      # Push Trivy vulnerabilities to Grafana Loki using HTTP API with basic auth
       - name: Push Trivy vulnerabilities to Grafana Loki
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
+          GRAFANA_TENANT_ID: ${{ secrets.GRAFANA_USER_ID }}
           GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
           REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
         run: |
           TIMESTAMP=$(date +%s%N)
-          # Extract vulnerabilities and format Loki streams
           STREAMS=$(jq -c --arg repo "$REPO" --arg commit "$COMMIT" --arg timestamp "$TIMESTAMP" '
             [ .Results[]?.Vulnerabilities[]? |
               {stream: {job: "trivy-scan", repo: $repo, commit: $commit, severity: .Severity},
                values: [[$timestamp, (. | tostring)]]}
             ]' trivy-report.json)
-
           PAYLOAD="{\"streams\":$STREAMS}"
-
           curl -X POST "$LOKI_URL" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $GRAFANA_API_KEY" \
+            -u "$GRAFANA_TENANT_ID:$GRAFANA_API_KEY" \
             --data "$PAYLOAD"
 
       # Log in to DockerHub

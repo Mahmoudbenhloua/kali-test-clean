@@ -44,18 +44,38 @@ jobs:
           ignore-unfixed: true
           exit-code: 0  # don't block push
       # 📤 Push Trivy report to Grafana Loki
-      - name: Push Trivy report to Grafana Loki
+      - name: Push Trivy vulnerabilities to Grafana Loki
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
           GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+          REPO: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
         run: |
-          # Prepare Loki log entry format
           TIMESTAMP=$(date +%s%N | cut -b1-13)
-          LOG_ENTRY=$(jq -c '{streams:[{stream:{job:"trivy-scan", repo:"${{ github.repository }}", commit:"${{ github.sha }}"}, values:[["'$TIMESTAMP'", input]]}]}' < trivy-report.json)
-          # Send logs to Loki
+          # Extract vulnerabilities array from Trivy JSON and create Loki stream entries
+          ENTRIES=$(jq -c --arg timestamp "$TIMESTAMP" --arg repo "$REPO" --arg commit "$COMMIT" '
+            .Results[]?.Vulnerabilities[]? | 
+            {stream: {job:"trivy-scan", repo:$repo, commit:$commit, severity:.Severity}, values: [[$timestamp, tostring]]} 
+          ' trivy-report.json)
+          
+          # Compose Loki push JSON payload
+          PAYLOAD="{\"streams\":["
+          first=true
+          for entry in $ENTRIES; do
+            if $first; then
+              PAYLOAD+=$entry
+              first=false
+            else
+              PAYLOAD+=","$entry
+            fi
+          done
+          PAYLOAD+="]}"
+          
+          # Send payload to Loki
           curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $GRAFANA_API_KEY" \
-            --data "$LOG_ENTRY" \
-            $LOKI_URL/loki/api/v1/push
+               --data "$PAYLOAD" \
+               $LOKI_URL/loki/api/v1/push
+
 
       # 🐋 Log in to DockerHub
       - name: Log in to DockerHub

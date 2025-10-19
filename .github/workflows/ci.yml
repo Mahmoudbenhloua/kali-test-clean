@@ -52,7 +52,7 @@ jobs:
       - name: Push Trivy vulnerabilities to Grafana Loki
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
-          GRAFANA_TENANT_ID: ${{ secrets.GRAFANA_TENANT_ID }}
+          GRAFANA_TENANT_ID: ${{ secrets.GRAFANA_USER_ID }}
           GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
           REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}

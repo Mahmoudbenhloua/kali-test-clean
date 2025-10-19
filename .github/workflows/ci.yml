@@ -44,26 +44,67 @@ jobs:
           ignore-unfixed: true
           exit-code: 0
 
+      # Install jq for JSON processing
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
       # Push Trivy vulnerabilities to Grafana Loki using HTTP API with basic auth
       - name: Push Trivy vulnerabilities to Grafana Loki
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
-          GRAFANA_TENANT_ID: ${{ secrets.GRAFANA_USER_ID }}
+          GRAFANA_TENANT_ID: ${{ secrets.GRAFANA_TENANT_ID }}
           GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
           REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
         run: |
+          # Check if trivy-report.json exists and has content
+          if [ ! -f trivy-report.json ] || [ ! -s trivy-report.json ]; then
+            echo "No trivy report found or report is empty"
+            exit 0
+          fi
+
+          # Check if there are any vulnerabilities
+          VULN_COUNT=$(jq '[.Results[]?.Vulnerabilities? // empty | .[]] | length' trivy-report.json)
+          if [ "$VULN_COUNT" -eq "0" ]; then
+            echo "No vulnerabilities found to send to Loki"
+            exit 0
+          fi
+
           TIMESTAMP=$(date +%s%N)
+          
+          # Create Loki payload with proper error handling
           STREAMS=$(jq -c --arg repo "$REPO" --arg commit "$COMMIT" --arg timestamp "$TIMESTAMP" '
-            [ .Results[]?.Vulnerabilities[]? |
-              {stream: {job: "trivy-scan", repo: $repo, commit: $commit, severity: .Severity},
-               values: [[$timestamp, (. | tostring)]]}
-            ]' trivy-report.json)
-          PAYLOAD="{\"streams\":$STREAMS}"
-          curl -X POST "$LOKI_URL" \
-            -H "Content-Type: application/json" \
-            -u "$GRAFANA_TENANT_ID:$GRAFANA_API_KEY" \
-            --data "$PAYLOAD"
+            {
+              streams: [
+                {
+                  stream: {
+                    job: "trivy-scan",
+                    repo: $repo,
+                    commit: $commit
+                  },
+                  values: [
+                    [
+                      $timestamp,
+                      (.[0] | tostring)
+                    ]
+                  ]
+                }
+              ]
+            }' trivy-report.json) || echo "Failed to create Loki payload"
+
+          # Debug: Print the payload
+          echo "Loki payload: $STREAMS"
+
+          # Send to Loki
+          if [ -n "$STREAMS" ] && [ "$STREAMS" != "null" ]; then
+            curl -v -X POST "$LOKI_URL/loki/api/v1/push" \
+              -H "Content-Type: application/json" \
+              -H "X-Scope-OrgID: $GRAFANA_TENANT_ID" \
+              -u "$GRAFANA_TENANT_ID:$GRAFANA_API_KEY" \
+              --data "$STREAMS"
+          else
+            echo "No valid payload to send to Loki"
+          fi
 
       # Log in to DockerHub
       - name: Log in to DockerHub

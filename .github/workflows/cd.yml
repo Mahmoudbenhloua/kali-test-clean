@@ -1,0 +1,4 @@
+curl -X POST "$LOKI_URL" \
+  -H "Content-Type: "https://logs-prod-012.grafana.net/loki/api/v1/push" \
+  -u "$GRAFANA_TENANT_ID:$GRAFANA_API_KEY" \
+  --data "$PAYLOAD"

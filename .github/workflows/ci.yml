@@ -49,10 +49,11 @@ jobs:
         run: sudo apt-get install -y jq
 
       # Push Trivy vulnerabilities to Grafana Loki using HTTP API with basic auth
+      # Push Trivy vulnerabilities to Grafana Loki using HTTP API with basic auth
       - name: Push Trivy vulnerabilities to Grafana Loki
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
-          GRAFANA_TENANT_ID: ${{ secrets.GRAFANA_USER_ID }}
+          GRAFANA_USER_ID: ${{ secrets.GRAFANA_USER_ID }}
           GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
           REPO: ${{ github.repository }}
           COMMIT: ${{ github.sha }}
@@ -63,8 +64,14 @@ jobs:
             exit 0
           fi
 
+          # Debug: Check Trivy report structure
+          echo "=== Trivy Report Structure ==="
+          jq 'keys' trivy-report.json || echo "Failed to parse JSON structure"
+
           # Check if there are any vulnerabilities
           VULN_COUNT=$(jq '[.Results[]?.Vulnerabilities? // empty | .[]] | length' trivy-report.json)
+          echo "Vulnerability count: $VULN_COUNT"
+          
           if [ "$VULN_COUNT" -eq "0" ]; then
             echo "No vulnerabilities found to send to Loki"
             exit 0
@@ -72,40 +79,58 @@ jobs:
 
           TIMESTAMP=$(date +%s%N)
           
-          # Create Loki payload with proper error handling
+          # Create Loki payload with proper Trivy JSON parsing
           STREAMS=$(jq -c --arg repo "$REPO" --arg commit "$COMMIT" --arg timestamp "$TIMESTAMP" '
+            # Extract all vulnerabilities from all results
+            def extract_vulns:
+              .Results[]? | 
+              select(.Vulnerabilities != null) |
+              .Vulnerabilities[]? |
+              {
+                severity: .Severity,
+                vulnerability: .VulnerabilityID,
+                pkg: .PkgName,
+                installed: .InstalledVersion,
+                fixed: .FixedVersion,
+                title: .Title,
+                description: .Description
+              };
+            
+            # Group vulnerabilities by severity for better organization
             {
               streams: [
                 {
                   stream: {
                     job: "trivy-scan",
                     repo: $repo,
-                    commit: $commit
+                    commit: $commit,
+                    scanner: "trivy"
                   },
                   values: [
                     [
                       $timestamp,
-                      (.[0] | tostring)
+                      ( [ extract_vulns ] | tostring )
                     ]
                   ]
                 }
               ]
-            }' trivy-report.json) || echo "Failed to create Loki payload"
+            }' trivy-report.json) && echo "Successfully created Loki payload" || echo "Failed to create Loki payload"
 
-          # Debug: Print the payload
-          echo "Loki payload: $STREAMS"
-
+          # Debug: Print the payload size
+          echo "Payload size: ${#STREAMS} characters"
+          
           # Send to Loki
-          if [ -n "$STREAMS" ] && [ "$STREAMS" != "null" ]; then
-            curl -v -X POST "$LOKI_URL/loki/api/v1/push" \
+          if [ -n "$STREAMS" ] && [ "$STREAMS" != "null" ] && [ "${#STREAMS}" -gt 50 ]; then
+            echo "Sending payload to Loki..."
+            curl -w "\nResponse Code: %{http_code}\n" -X POST "$LOKI_URL/loki/api/v1/push" \
               -H "Content-Type: application/json" \
-              -H "X-Scope-OrgID: $GRAFANA_TENANT_ID" \
-              -u "$GRAFANA_TENANT_ID:$GRAFANA_API_KEY" \
+              -H "X-Scope-OrgID: $GRAFANA_USER_ID" \
+              -u "$GRAFANA_USER_ID:$GRAFANA_API_KEY" \
               --data "$STREAMS"
           else
             echo "No valid payload to send to Loki"
+            echo "Payload content: $STREAMS"
           fi
-
       # Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3

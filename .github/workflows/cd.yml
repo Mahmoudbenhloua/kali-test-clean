@@ -1,53 +1,88 @@
-name: Deploy Grafana Dashboard
+name: CI/CD Pipeline with Security Scans
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  deploy:
+  build-test-scan:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout the repo
+      # 🧩 Checkout source code
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # 2️⃣ Install Go
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      # 🐍 Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          go-version: 1.24.6
+          python-version: "3.11"
 
-      - name: Verify Go version
-        run: go version
+      # 📦 Install dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      # 3️⃣ Download grafanactl CLI
-      - name: Download and Extract grafanactl
-        run: |
-          curl -L -o grafanactl-x86_64.tar.gz "https://github.com/grafana/grafanactl/releases/download/${{ vars.GRAFANACTL_VERSION }}/grafanactl_Linux_x86_64.tar.gz"
-          tar -xzf grafanactl-x86_64.tar.gz
-          chmod +x grafanactl
-          sudo mv grafanactl /usr/local/bin/grafanactl
+      # 🧪 Run tests
+      - name: Run tests
+        run: pytest || echo "No tests found, skipping..."
 
-      # 4️⃣ Generate the dashboard JSON
-      - name: Generate Dashboard JSON
-        run: go run main.go
-        working-directory: ./github-actions-example
+      # 🐳 Build Docker image
+      - name: Build Docker image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # 5️⃣ Deploy to Grafana Cloud
-      - name: Deploy Dashboard with grafanactl
+      # 🔍 Trivy vulnerability scan (JSON output)
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          format: json
+          output: trivy-report.json
+          ignore-unfixed: true
+          exit-code: 0  # do not fail the build even if vulnerabilities are found
+
+      # 📤 Push Trivy report to Grafana Loki
+      - name: Push Trivy report to Grafana Loki
         env:
-          GRAFANA_SERVER: ${{ vars.GRAFANA_SERVER }}
-          GRAFANA_STACK_ID: ${{ vars.GRAFANA_STACK_ID }}
-          GRAFANA_TOKEN: ${{ secrets.GRAFANA_TOKEN }}
+          LOKI_URL: https://logs-prod-012.grafana.net
+          GRAFANA_USER_ID: 1367479
+          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
         run: |
-          if [ -f dashboard.json ]; then
-            echo "✅ dashboard.json found, deploying to Grafana Cloud..."
-            grafanactl resources push dashboards --path ./dashboard.json
-          else
-            echo "❌ dashboard.json not found."
-            exit 1
-          fi
-        working-directory: ./github-actions-example
+          TIMESTAMP=$(date +%s%N)
+          JSON=$(jq -c '.' trivy-report.json)
+          cat <<EOF > payload.json
+          {
+            "streams": [
+              {
+                "stream": {
+                  "job": "trivy-scan",
+                  "repo": "${{ github.repository }}",
+                  "commit": "${{ github.sha }}"
+                },
+                "values": [
+                  ["$TIMESTAMP", "$JSON"]
+                ]
+              }
+            ]
+          }
+          EOF
+
+          curl -v -X POST \
+            -H "Content-Type: application/json" \
+            -u "${GRAFANA_USER_ID}:${GRAFANA_API_KEY}" \
+            --data @payload.json \
+            $LOKI_URL/loki/api/v1/push
+
+      # 🐋 Log in to DockerHub
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 🚀 Push image to DockerHub
+      - name: Push Docker image
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}

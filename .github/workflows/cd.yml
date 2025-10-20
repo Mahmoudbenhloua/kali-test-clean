@@ -27,13 +27,21 @@ jobs:
 
       # 🧪 Run tests
       - name: Run tests
-        run: pytest || echo "No tests found, skipping..."
-
+        run: pytest || echo "No tests found, skipping.    
       # 🐳 Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # 🔍 Trivy vulnerability scan (JSON output)
+
+      # gitleaks tests 
+
+      - name: Run Gitleaks scan
+        uses: zricethezav/gitleaks-action@v2
+        with:
+          args: detect --source . --report-format sarif --report-path gitleaks-report.sarif
+
+
+      # 🔍 Trivy vulnerability scan (JSON output for Prometheus)
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -42,44 +50,8 @@ jobs:
           format: json
           output: trivy-report.json
           ignore-unfixed: true
-          exit-code: 0  # do not fail the build even if vulnerabilities are found
+          exit-code: 0  # don't block push
 
-      # 📤 Push Trivy report to Grafana Loki
-      - name: Push Trivy report to Grafana Loki
-        env:
-          LOKI_URL: https://logs-prod-012.grafana.net
-          GRAFANA_USER_ID: 1367479
-          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
-        run: |
-          TIMESTAMP=$(date +%s%N)
-          # Convert the entire Trivy JSON into a single escaped string
-          LOG_CONTENT=$(cat trivy-report.json | jq -Rs .)
-          
-          cat <<EOF > payload.json
-          {
-            "streams": [
-              {
-                "stream": {
-                  "job": "trivy-scan",
-                  "repo": "${{ github.repository }}",
-                  "commit": "${{ github.sha }}"
-                },
-                "values": [
-                  ["$TIMESTAMP", $LOG_CONTENT]
-                ]
-              }
-            ]
-          }
-          EOF
-
-          echo "Sending logs to Loki..."
-          curl -v -u "${GRAFANA_USER_ID}:${GRAFANA_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -X POST \
-            --data @payload.json \
-            $LOKI_URL/loki/api/v1/push
-      - name: Run Gitleaks scan
-        uses: zricethezav/gitleaks-action@v2
 
       # 🐋 Log in to DockerHub
       - name: Log in to DockerHub
@@ -90,4 +62,5 @@ jobs:
 
       # 🚀 Push image to DockerHub
       - name: Push Docker image
+        if: success()
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}

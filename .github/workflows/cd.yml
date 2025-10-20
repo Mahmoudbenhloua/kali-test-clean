@@ -52,7 +52,7 @@ jobs:
           output: trivy-report.txt
           severity: CRITICAL,HIGH,MEDIUM,LOW
           ignore-unfixed: true
-          exit-code: 0
+          exit-code: 1
 
       #  Display Trivy results in console
       - name: Display Trivy results

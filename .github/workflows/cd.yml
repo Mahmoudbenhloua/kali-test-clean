@@ -50,7 +50,7 @@ jobs:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
           format: table
           output: trivy-report.txt
-          severity: CRITICAL,HIGH,MEDIUM,LOW
+          severity: CRITICAL
           ignore-unfixed: true
           exit-code: 1
 

@@ -78,6 +78,8 @@ jobs:
             -X POST \
             --data @payload.json \
             $LOKI_URL/loki/api/v1/push
+      - name: Run Gitleaks scan
+        uses: zricethezav/gitleaks-ac�on@v2
       # 🐋 Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3

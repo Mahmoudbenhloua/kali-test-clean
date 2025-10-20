@@ -11,21 +11,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 🧩 Checkout source code
+      #  Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 🐍 Set up Python
+      #  Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # 📦 Install dependencies
+      #  Install dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 🧪 Run tests - FIXED THIS STEP
+      #  Run tests - FIXED THIS STEP
       - name: Run tests
         run: |
           if [ -f "requirements-test.txt" ]; then
@@ -34,17 +34,17 @@ jobs:
           # Run pytest, continue even if tests fail
           pytest || echo "Tests failed or no tests found - continuing pipeline"
 
-      # 🐳 Build Docker image
+      #  Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # 🔍 Gitleaks tests 
+      #  Gitleaks tests 
       - name: Run Gitleaks scan
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --source . --report-format sarif --report-path gitleaks-report.sarif
 
-      # 🔍 Trivy vulnerability scan (JSON output for Prometheus)
+      #  Trivy vulnerability scan (JSON output for Prometheus)
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -55,14 +55,14 @@ jobs:
           ignore-unfixed: true
           exit-code: 0  # don't block push
 
-      # 🐋 Log in to DockerHub
+      #  Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 🚀 Push image to DockerHub
+      #  Push image to DockerHub
       - name: Push Docker image
         if: success()
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}

@@ -1,7 +1,0 @@
-.idea/
-*.test
-!test/data/*.test
-trivyignores
-.vscode/
-
-.cache

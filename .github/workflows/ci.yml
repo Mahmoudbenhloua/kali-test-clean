@@ -11,134 +11,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout source code
+      # 🧩 Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Set up Python 3.11
+      # 🐍 Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # Install dependencies
+      # 📦 Install dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Run tests if present
+      # 🧪 Run tests
       - name: Run tests
         run: pytest || echo "No tests found, skipping..."
 
-      # Build Docker image with commit SHA tag
+      # 🐳 Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # Run Trivy vulnerability scan outputting JSON report
-      - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
-          severity: CRITICAL,HIGH,MEDIUM,LOW
-          format: json
-          output: trivy-report.json
-          ignore-unfixed: true
-          exit-code: 0
+        #gitliks
 
-      # Install jq for JSON processing
-      - name: Install jq
-        run: sudo apt-get install -y jq
+      - name: Run Gitleaks scan
+        uses: zricethezav/gitleaks-action@v2
+     
 
-      # Push Trivy vulnerabilities to Grafana Loki using HTTP API with basic auth
-      # Push Trivy vulnerabilities to Grafana Loki using HTTP API with basic auth
-      - name: Push Trivy vulnerabilities to Grafana Loki
-        env:
-          LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
-          GRAFANA_USER_ID: ${{ secrets.GRAFANA_USER_ID }}
-          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
-          REPO: ${{ github.repository }}
-          COMMIT: ${{ github.sha }}
-        run: |
-          # Check if trivy-report.json exists and has content
-          if [ ! -f trivy-report.json ] || [ ! -s trivy-report.json ]; then
-            echo "No trivy report found or report is empty"
-            exit 0
-          fi
-
-          # Debug: Check Trivy report structure
-          echo "=== Trivy Report Structure ==="
-          jq 'keys' trivy-report.json || echo "Failed to parse JSON structure"
-
-          # Check if there are any vulnerabilities
-          VULN_COUNT=$(jq '[.Results[]?.Vulnerabilities? // empty | .[]] | length' trivy-report.json)
-          echo "Vulnerability count: $VULN_COUNT"
-          
-          if [ "$VULN_COUNT" -eq "0" ]; then
-            echo "No vulnerabilities found to send to Loki"
-            exit 0
-          fi
-
-          TIMESTAMP=$(date +%s%N)
-          
-          # Create Loki payload with proper Trivy JSON parsing
-          STREAMS=$(jq -c --arg repo "$REPO" --arg commit "$COMMIT" --arg timestamp "$TIMESTAMP" '
-            # Extract all vulnerabilities from all results
-            def extract_vulns:
-              .Results[]? | 
-              select(.Vulnerabilities != null) |
-              .Vulnerabilities[]? |
-              {
-                severity: .Severity,
-                vulnerability: .VulnerabilityID,
-                pkg: .PkgName,
-                installed: .InstalledVersion,
-                fixed: .FixedVersion,
-                title: .Title,
-                description: .Description
-              };
-            
-            # Group vulnerabilities by severity for better organization
-            {
-              streams: [
-                {
-                  stream: {
-                    job: "trivy-scan",
-                    repo: $repo,
-                    commit: $commit,
-                    scanner: "trivy"
-                  },
-                  values: [
-                    [
-                      $timestamp,
-                      ( [ extract_vulns ] | tostring )
-                    ]
-                  ]
-                }
-              ]
-            }' trivy-report.json) && echo "Successfully created Loki payload" || echo "Failed to create Loki payload"
-
-          # Debug: Print the payload size
-          echo "Payload size: ${#STREAMS} characters"
-          
-          # Send to Loki
-          if [ -n "$STREAMS" ] && [ "$STREAMS" != "null" ] && [ "${#STREAMS}" -gt 50 ]; then
-            echo "Sending payload to Loki..."
-            curl -w "\nResponse Code: %{http_code}\n" -X POST "$LOKI_URL/loki/api/v1/push" \
-              -H "Content-Type: application/json" \
-              -H "X-Scope-OrgID: $GRAFANA_USER_ID" \
-              -u "$GRAFANA_USER_ID:$GRAFANA_API_KEY" \
-              --data "$STREAMS"
-          else
-            echo "No valid payload to send to Loki"
-            echo "Payload content: $STREAMS"
-          fi
-      # Log in to DockerHub
+      # 🐋 Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Push Docker image to DockerHub
+      # 🚀 Push image to DockerHub
       - name: Push Docker image
         if: success()
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}

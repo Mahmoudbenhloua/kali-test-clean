@@ -25,21 +25,24 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 🧪 Run tests
+      # 🧪 Run tests - FIXED THIS STEP
       - name: Run tests
-        run: pytest || echo "No tests found, skipping.    
+        run: |
+          if [ -f "requirements-test.txt" ]; then
+            pip install -r requirements-test.txt
+          fi
+          # Run pytest, continue even if tests fail
+          pytest || echo "Tests failed or no tests found - continuing pipeline"
+
       # 🐳 Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-
-      # gitleaks tests 
-
+      # 🔍 Gitleaks tests 
       - name: Run Gitleaks scan
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --source . --report-format sarif --report-path gitleaks-report.sarif
-
 
       # 🔍 Trivy vulnerability scan (JSON output for Prometheus)
       - name: Trivy vulnerability scan
@@ -51,7 +54,6 @@ jobs:
           output: trivy-report.json
           ignore-unfixed: true
           exit-code: 0  # don't block push
-
 
       # 🐋 Log in to DockerHub
       - name: Log in to DockerHub

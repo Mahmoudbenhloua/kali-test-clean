@@ -1,0 +1,71 @@
+name: "Tests"
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build: # make sure build/ci work properly and there is no faked build ncc built scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - run: npm ci
+      - run: npm run audit
+      - run: npm run build
+      - run: git status --porcelain
+      - run: git diff
+      - run: git diff --exit-code
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - name: Build images
+        run: |
+          for distro in alpine centos debian; do
+            docker build -t localhost:5000/match-coverage/$distro ./tests/fixtures/image-$distro-match-coverage
+            docker push localhost:5000/match-coverage/$distro:latest
+          done
+      - name: Inspect
+        run: |
+          docker images -a
+          for distro in alpine centos debian; do
+            docker buildx imagetools inspect localhost:5000/match-coverage/$distro:latest
+          done
+      - run: npm ci
+      - run: npm run audit
+      - run: npm test
+
+  test-as-action: # run actions to test some scenarios
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          path: ./
+
+      - name: "Donwload Grype v0.54.0"
+        uses: ./download-grype # anchore/scan-action/download-grype
+        with:
+          grype-version: v0.54.0
+
+      - name: "Check Grype version before scan-action"
+        run: grype version | egrep "^Version:.*0.54.0$"
+
+      - name: "Scan test image"
+        uses: ./
+        with:
+          image: "alpine:latest"
+          grype-version: v0.54.0 # set the same version to test that current Grype binary wasn't overwritten by the latest version
+          fail-build: false # to prevent fail due to vuln:s on test image
+
+      - name: "Check Grype version after scan-action"
+        run: grype version | egrep "^Version:.*0.54.0$"

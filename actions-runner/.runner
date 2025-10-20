@@ -1,0 +1,11 @@
+﻿{
+  "agentId": 21,
+  "agentName": "vbox",
+  "poolId": 1,
+  "poolName": "Default",
+  "serverUrl": "https://pipelinesghubeus12.actions.githubusercontent.com/DGiDI2h8KxOUOwXLs2jq0zlDPDNPSyyFHXRBb32bvjN9obc44k/",
+  "gitHubUrl": "https://github.com/Mahmoudbenhloua/kali-test-clean",
+  "workFolder": "_work",
+  "useV2Flow": true,
+  "serverUrlV2": "https://broker.actions.githubusercontent.com/"
+}

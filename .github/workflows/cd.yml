@@ -51,9 +51,13 @@ jobs:
       # 6. Gitleaks scan
       # ------------------------------
       - name: Run Gitleaks scan
-        uses: zricethezav/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v2
         with:
-          args: detect --source . --report-format sarif --report-path gitleaks-report.sarif --verbose
+          scan-path: .
+          report-format: sarif
+          report-path: gitleaks-report.sarif
+          verbose: true
+
 
       # ------------------------------
       # 7. Trivy scan (table format)

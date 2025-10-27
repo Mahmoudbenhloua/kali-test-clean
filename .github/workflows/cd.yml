@@ -11,21 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      #  Checkout source code
+      # ------------------------------
+      # 1. Checkout source code
+      # ------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
-      #  Set up Python
+      # ------------------------------
+      # 2. Set up Python
+      # ------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      #  Install dependencies
+      # ------------------------------
+      # 3. Install dependencies
+      # ------------------------------
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      #  Run tests
+      # ------------------------------
+      # 4. Run tests (if any)
+      # ------------------------------
       - name: Run tests
         run: |
           if [ -f "requirements-test.txt" ]; then
@@ -33,17 +41,23 @@ jobs:
           fi
           pytest || echo "Tests failed or no tests found - continuing pipeline"
 
-      #  Build Docker image
+      # ------------------------------
+      # 5. Build Docker image
+      # ------------------------------
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      #  Gitleaks scan with display
+      # ------------------------------
+      # 6. Gitleaks scan
+      # ------------------------------
       - name: Run Gitleaks scan
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --source . --report-format sarif --report-path gitleaks-report.sarif --verbose
 
-      #  Trivy vulnerability scan with console output + JSON report
+      # ------------------------------
+      # 7. Trivy scan (table format)
+      # ------------------------------
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -54,7 +68,9 @@ jobs:
           ignore-unfixed: true
           exit-code: 1
 
-      #  Display Trivy results in console
+      # ------------------------------
+      # 8. Display Trivy results in console
+      # ------------------------------
       - name: Display Trivy results
         run: |
           echo " TRIVY VULNERABILITY SCAN RESULTS:"
@@ -65,7 +81,9 @@ jobs:
             echo "No Trivy report generated"
           fi
 
-      # Generate additional JSON report for automation
+      # ------------------------------
+      # 9. Generate JSON report for automation
+      # ------------------------------
       - name: Generate Trivy JSON report
         uses: aquasecurity/trivy-action@master
         with:
@@ -76,7 +94,9 @@ jobs:
           ignore-unfixed: true
           exit-code: 0
 
-      #  Display summary of critical/high vulnerabilities
+      # ------------------------------
+      # 10. Display summary of vulnerabilities
+      # ------------------------------
       - name: Display vulnerability summary
         run: |
           echo " VULNERABILITY SUMMARY:"
@@ -96,19 +116,25 @@ jobs:
             echo "No vulnerability data available"
           fi
 
-      #  Log in to DockerHub
+      # ------------------------------
+      # 11. Log in to DockerHub
+      # ------------------------------
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      #  Push image to DockerHub
+      # ------------------------------
+      # 12. Push Docker image
+      # ------------------------------
       - name: Push Docker image
         if: success()
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
 
-      #  Upload security reports as artifacts
+      # ------------------------------
+      # 13. Upload reports as artifacts
+      # ------------------------------
       - name: Upload security reports
         uses: actions/upload-artifact@v4
         with:
@@ -118,3 +144,77 @@ jobs:
             trivy-report.json
             trivy-report.txt
           retention-days: 7
+
+      # ------------------------------
+      # 14. Send Trivy report to Grafana Cloud Loki
+      # ------------------------------
+      - name: Push Trivy JSON report to Grafana Cloud Loki
+        if: always()
+        env:
+          LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
+          LOKI_USER: ${{ secrets.GRAFANA_LOKI_USER }}
+          LOKI_PASS: ${{ secrets.GRAFANA_LOKI_PASS }}
+        run: |
+          if [ -f "trivy-report.json" ]; then
+            echo "Sending Trivy results to Grafana Cloud Loki..."
+            TIMESTAMP=$(date +%s%N)
+            LOG_LINE=$(jq -c '.' trivy-report.json)
+            cat > /tmp/loki-payload.json <<EOF
+            {
+              "streams": [
+                {
+                  "stream": {
+                    "job": "trivy-scan",
+                    "repo": "${GITHUB_REPOSITORY}",
+                    "branch": "${GITHUB_REF_NAME}",
+                    "sha": "${GITHUB_SHA}"
+                  },
+                  "values": [ [ "${TIMESTAMP}", ${LOG_LINE} ] ]
+                }
+              ]
+            }
+            EOF
+            curl -s -u "$LOKI_USER:$LOKI_PASS" \
+              -H "Content-Type: application/json" \
+              -X POST "$LOKI_URL" \
+              --data @/tmp/loki-payload.json || echo "Loki push failed"
+          else
+            echo "No trivy-report.json file found"
+          fi
+
+      # ------------------------------
+      # 15. Send Gitleaks report to Grafana Cloud Loki
+      # ------------------------------
+      - name: Push Gitleaks SARIF report to Grafana Cloud Loki
+        if: always()
+        env:
+          LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
+          LOKI_USER: ${{ secrets.GRAFANA_LOKI_USER }}
+          LOKI_PASS: ${{ secrets.GRAFANA_LOKI_PASS }}
+        run: |
+          if [ -f "gitleaks-report.sarif" ]; then
+            echo "Sending Gitleaks results to Grafana Cloud Loki..."
+            TIMESTAMP=$(date +%s%N)
+            LOG_LINE=$(jq -c '.' gitleaks-report.sarif)
+            cat > /tmp/loki-payload.json <<EOF
+            {
+              "streams": [
+                {
+                  "stream": {
+                    "job": "gitleaks-scan",
+                    "repo": "${GITHUB_REPOSITORY}",
+                    "branch": "${GITHUB_REF_NAME}",
+                    "sha": "${GITHUB_SHA}"
+                  },
+                  "values": [ [ "${TIMESTAMP}", ${LOG_LINE} ] ]
+                }
+              ]
+            }
+            EOF
+            curl -s -u "$LOKI_USER:$LOKI_PASS" \
+              -H "Content-Type: application/json" \
+              -X POST "$LOKI_URL" \
+              --data @/tmp/loki-payload.json || echo "Loki push failed"
+          else
+            echo "No gitleaks-report.sarif file found"
+          fi

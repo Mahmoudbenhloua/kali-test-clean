@@ -37,13 +37,13 @@ jobs:
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      #  Gitleaks scan with display
+      #  Run Gitleaks scan
       - name: Run Gitleaks scan
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --source . --report-format sarif --report-path gitleaks-report.sarif --verbose
 
-      #  Trivy vulnerability scan with console output + JSON report
+      #  Trivy vulnerability scan (console + JSON)
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -54,18 +54,6 @@ jobs:
           ignore-unfixed: true
           exit-code: 1
 
-      #  Display Trivy results in console
-      - name: Display Trivy results
-        run: |
-          echo " TRIVY VULNERABILITY SCAN RESULTS:"
-          echo "======================================"
-          if [ -f "trivy-report.txt" ]; then
-            cat trivy-report.txt
-          else
-            echo "No Trivy report generated"
-          fi
-
-      # Generate additional JSON report for automation
       - name: Generate Trivy JSON report
         uses: aquasecurity/trivy-action@master
         with:
@@ -76,11 +64,9 @@ jobs:
           ignore-unfixed: true
           exit-code: 0
 
-      #  Display summary of critical/high vulnerabilities
+      #  Display Trivy results summary
       - name: Display vulnerability summary
         run: |
-          echo " VULNERABILITY SUMMARY:"
-          echo "=========================="
           if [ -f "trivy-report.json" ]; then
             CRITICAL=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
             HIGH=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
@@ -103,7 +89,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      #  Push image to DockerHub
+      #  Push Docker image
       - name: Push Docker image
         if: success()
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
@@ -119,14 +105,14 @@ jobs:
             trivy-report.txt
           retention-days: 7
 
-      # 🔗 Send build + scan info to Jenkins
+      #  🔗 Send build info + Trivy/Gitleaks results to Jenkins
       - name: Send build info to Jenkins
         if: always()
         env:
           JENKINS_USER: ${{ secrets.JENKINS_USER }}
           JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
         run: |
-          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke" \
+          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
             -H "Content-Type: application/json" \
             -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
             -d '{

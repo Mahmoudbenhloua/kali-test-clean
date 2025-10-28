@@ -119,26 +119,20 @@ jobs:
             trivy-report.txt
           retention-days: 7
 
-      #   Push Trivy results to Grafana Cloud Loki
-      - name: Push results to Grafana Cloud
+      # 🔗 Send build + scan info to Jenkins
+      - name: Send build info to Jenkins
+        if: always()
         env:
-          GRAFANA_USER: "1367479"
-          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
         run: |
-          echo "Pushing Trivy scan results to Grafana Cloud..."
-          if [ -f "trivy-report.txt" ]; then
-            LOG_CONTENT=$(cat trivy-report.txt | sed 's/"/\\"/g' | tr -d '\n')
-            curl -X POST "https://logs-prod-012.grafana.net/loki/api/v1/push" \
-              -u "$GRAFANA_USER:$GRAFANA_API_KEY" \
-              -H "Content-Type: application/json" \
-              --data-raw "{
-                \"streams\": [
-                  {
-                    \"stream\": {\"job\": \"ci-cd\", \"repo\": \"${{ github.repository }}\", \"commit\": \"${{ github.sha }}\"},
-                    \"values\": [[\"$(date +%s%N)\", \"$LOG_CONTENT\"]]
-                  }
-                ]
-              }"
-          else
-            echo "No Trivy report found to send to Grafana Cloud."
-          fi
+          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke" \
+            -H "Content-Type: application/json" \
+            -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
+            -d '{
+              "commit": "${{ github.sha }}",
+              "branch": "${{ github.ref_name }}",
+              "repo": "${{ github.repository }}",
+              "trivy": '"$(cat trivy-report.json | jq .)"',
+              "image": "'"${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}"'"
+            }'

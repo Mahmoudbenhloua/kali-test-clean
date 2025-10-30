@@ -110,7 +110,7 @@ jobs:
             LOW="0"
           fi
 
-          # Send comprehensive data to Jenkins
+          # Send to Jenkins with simplified parameter names
           curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
             -H "Content-Type: application/json" \
             -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
@@ -119,23 +119,14 @@ jobs:
               "branch": "${{ github.ref_name }}",
               "repo": "${{ github.repository }}",
               "workflow": "${{ github.workflow }}",
-              "run_id": "${{ github.run_id }}",
-              "triggered_by": "${{ github.actor }}",
-              "timestamp": "'"$(date -Iseconds)"'",
-              "pipeline_status": "${{ job.status }}",
-              "image": "${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}",
-              "trivy_summary": {
-                "CRITICAL": '"$CRITICAL"',
-                "HIGH": '"$HIGH"',
-                "MEDIUM": '"$MEDIUM"',
-                "LOW": '"$LOW"',
-                "TOTAL": '"$((CRITICAL + HIGH + MEDIUM + LOW))"'
-              },
+              "critical": '"$CRITICAL"',
+              "high": '"$HIGH"',
+              "medium": '"$MEDIUM"',
+              "low": '"$LOW"',
               "source": "github-actions",
               "forward_to_dashboard": "true"
             }'
           echo "✅ Data sent to Jenkins"
-
       # Send to Local Dashboard (via Jenkins proxy)
       - name: Send to Local Dashboard via Jenkins
         if: always()

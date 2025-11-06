@@ -11,48 +11,48 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout source code
+      #  Checkout source code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Set up Python
+      #  Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # Install dependencies
+      #  Install dependencies
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pytest
+        run: pip install -r requirements.txt
 
-      # Run tests
+      #  Run tests
       - name: Run tests
         run: |
           if [ -f "requirements-test.txt" ]; then
             pip install -r requirements-test.txt
           fi
-          pytest --junitxml=test-results.xml || echo "Tests failed or no tests found - continuing pipeline"
+          pytest || echo "Tests failed or no tests found - continuing pipeline"
 
-      # Build Docker image
+      #  Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
 
-      # Run Security Scans
+      #  Run Gitleaks scan
       - name: Run Gitleaks scan
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --source . --report-format sarif --report-path gitleaks-report.sarif --verbose
 
+      #  Trivy vulnerability scan (console + JSON)
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
           format: table
           output: trivy-report.txt
-          severity: CRITICAL,HIGH,MEDIUM,LOW
+          severity: CRITICAL
           ignore-unfixed: true
+          exit-code: 1
 
       - name: Generate Trivy JSON report
         uses: aquasecurity/trivy-action@master
@@ -64,105 +64,61 @@ jobs:
           ignore-unfixed: true
           exit-code: 0
 
-      # Display Security Results
+      #  Display Trivy results summary
       - name: Display vulnerability summary
         run: |
-          echo "=== SECURITY SCAN RESULTS ==="
           if [ -f "trivy-report.json" ]; then
             CRITICAL=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
             HIGH=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
             MEDIUM=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "MEDIUM") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
             LOW=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "LOW") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
             
-            echo "🔴 Critical: $CRITICAL"
-            echo "🟠 High: $HIGH" 
-            echo "🟡 Medium: $MEDIUM"
-            echo "🔵 Low: $LOW"
-            echo "📊 Total: $((CRITICAL + HIGH + MEDIUM + LOW))"
+            echo "Critical: $CRITICAL"
+            echo "High: $HIGH" 
+            echo "Medium: $MEDIUM"
+            echo "Low: $LOW"
+            echo "Total: $((CRITICAL + HIGH + MEDIUM + LOW))"
           else
             echo "No vulnerability data available"
           fi
 
-          if [ -f "gitleaks-report.sarif" ]; then
-            SECRETS=$(jq '.runs[0].results | length' gitleaks-report.sarif 2>/dev/null || echo "0")
-            echo "🔐 Secrets detected: $SECRETS"
-          else
-            echo "No secrets detection data available"
-          fi
-
-      # Send to Jenkins (via existing ngrok)
-      - name: Send build info to Jenkins
-        if: always()
-        env:
-          JENKINS_USER: ${{ secrets.JENKINS_USER }}
-          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
-        run: |
-          # Extract security data
-          if [ -f "trivy-report.json" ]; then
-            CRITICAL=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
-            HIGH=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
-            MEDIUM=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "MEDIUM") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
-            LOW=$(jq '.Results[].Vulnerabilities[]? | select(.Severity == "LOW") | .VulnerabilityID' trivy-report.json 2>/dev/null | wc -l || echo "0")
-          else
-            CRITICAL="0"
-            HIGH="0"
-            MEDIUM="0"
-            LOW="0"
-          fi
-
-          # Send to Jenkins with simplified parameter names
-          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
-            -H "Content-Type: application/json" \
-            -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
-            -d '{
-              "commit": "${{ github.sha }}",
-              "branch": "${{ github.ref_name }}",
-              "repo": "${{ github.repository }}",
-              "workflow": "${{ github.workflow }}",
-              "critical": '"$CRITICAL"',
-              "high": '"$HIGH"',
-              "medium": '"$MEDIUM"',
-              "low": '"$LOW"',
-              "source": "github-actions",
-              "forward_to_dashboard": "true"
-            }'
-          echo "✅ Data sent to Jenkins"
-      # Send to Local Dashboard (via Jenkins proxy)
-      - name: Send to Local Dashboard via Jenkins
-        if: always()
-        run: |
-          # This data will be forwarded by Jenkins to the local dashboard
-          echo "📊 Security data will be forwarded to local dashboard via Jenkins"
-          echo "🌐 Local Dashboard: http://127.0.0.1:8000/"
-
-      # Docker Operations
+      #  Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      #  Push Docker image
       - name: Push Docker image
         if: success()
-        run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
-          echo "✅ Image pushed to DockerHub"
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
 
-      # Upload artifacts
+      #  Upload security reports as artifacts
       - name: Upload security reports
         uses: actions/upload-artifact@v4
         with:
-          name: security-reports-${{ github.sha }}
+          name: security-reports
           path: |
             gitleaks-report.sarif
             trivy-report.json
             trivy-report.txt
-            test-results.xml
           retention-days: 7
 
-      # Final status
-      - name: Pipeline Complete
+      #   Send build info + Trivy/Gitleaks results to Jenkins
+      - name: Send build info to Jenkins
+        if: always()
+        env:
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
         run: |
-          echo "🎉 CI/CD Pipeline Completed!"
-          echo "📊 Check Jenkins for processing"
-          echo "📈 Check Local Dashboard: http://127.0.0.1:8000/"
+          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/" \
+            -H "Content-Type: application/json" \
+            -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
+            -d '{
+              "commit": "${{ github.sha }}",
+              "branch": "${{ github.ref_name }}",
+              "repo": "${{ github.repository }}",
+              "trivy": '"$(cat trivy-report.json | jq .)"',
+              "image": "'"${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}"'"
+            }'

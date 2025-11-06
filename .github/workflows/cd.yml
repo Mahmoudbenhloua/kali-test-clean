@@ -105,20 +105,27 @@ jobs:
             trivy-report.txt
           retention-days: 7
 
-      #   Send build info + Trivy/Gitleaks results to Jenkins
       - name: Send build info to Jenkins
         if: always()
         env:
           JENKINS_USER: ${{ secrets.JENKINS_USER }}
           JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
         run: |
-          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/" \
+          # Prepare safe JSON payload
+          TRIVY_JSON=$(jq -c . trivy-report.json)
+          PAYLOAD=$(jq -n \
+            --arg commit "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg image "${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}" \
+            --argjson trivy "$TRIVY_JSON" \
+            '{commit: $commit, branch: $branch, repo: $repo, image: $image, trivy: $trivy}')
+
+          echo "Payload ready to send to Jenkins:"
+          echo "$PAYLOAD" | jq .
+
+          # Send POST request with Jenkins token in header
+          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
             -H "Content-Type: application/json" \
             -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
-            -d '{
-              "commit": "${{ github.sha }}",
-              "branch": "${{ github.ref_name }}",
-              "repo": "${{ github.repository }}",
-              "trivy": '"$(cat trivy-report.json | jq .)"',
-              "image": "'"${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}"'"
-            }'
+            -d "$PAYLOAD"

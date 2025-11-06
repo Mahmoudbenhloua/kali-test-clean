@@ -111,8 +111,11 @@ jobs:
           JENKINS_USER: ${{ secrets.JENKINS_USER }}
           JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
         run: |
-          # Prepare safe JSON payload
+          echo "Preparing payload for Jenkins..."
+          
+          # Create a compact, valid JSON object
           TRIVY_JSON=$(jq -c . trivy-report.json)
+          
           PAYLOAD=$(jq -n \
             --arg commit "${{ github.sha }}" \
             --arg branch "${{ github.ref_name }}" \
@@ -121,11 +124,10 @@ jobs:
             --argjson trivy "$TRIVY_JSON" \
             '{commit: $commit, branch: $branch, repo: $repo, image: $image, trivy: $trivy}')
 
-          echo "Payload ready to send to Jenkins:"
+          echo "Final payload:"
           echo "$PAYLOAD" | jq .
 
-          # Send POST request with Jenkins token in header
-          curl -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
+          curl -v -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
             -H "Content-Type: application/json" \
             -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
             -d "$PAYLOAD"

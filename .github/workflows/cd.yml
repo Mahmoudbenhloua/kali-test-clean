@@ -104,7 +104,7 @@ jobs:
             trivy-report.json
             trivy-report.txt
           retention-days: 7
-
+          
       - name: Send build info to Jenkins
         if: always()
         env:

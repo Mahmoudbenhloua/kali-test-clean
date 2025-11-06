@@ -129,6 +129,6 @@ jobs:
 
           curl -v -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
             -H "Content-Type: application/json" \
-            -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
             -d "$PAYLOAD"
+
 

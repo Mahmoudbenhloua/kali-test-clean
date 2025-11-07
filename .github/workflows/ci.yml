@@ -11,7 +11,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+<<<<<<< HEAD
       # Checkout source code
+=======
+      #  Checkout source code
+>>>>>>> 1d06b180a45a16fb3a185c1f20ba8e9d4046babe
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -21,6 +25,7 @@ jobs:
         with:
           python-version: "3.11"
 
+<<<<<<< HEAD
       # Install dependencies
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -28,6 +33,16 @@ jobs:
       # Run tests
       - name: Run tests
         run: pytest || echo "No tests found, skipping.    
+=======
+      #  Install dependencies
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      #  Run tests
+      - name: Run tests
+        run: pytest || echo "No tests found, skipping..."
+
+>>>>>>> 1d06b180a45a16fb3a185c1f20ba8e9d4046babe
       #  Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
@@ -40,14 +55,21 @@ jobs:
           args: detect --source . --report-format sarif --report-path gitleaks-report.sarif
 
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 1d06b180a45a16fb3a185c1f20ba8e9d4046babe
       #  Log in to DockerHub
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+<<<<<<< HEAD
 
+=======
+          
+>>>>>>> 1d06b180a45a16fb3a185c1f20ba8e9d4046babe
       #  Push image to DockerHub
       - name: Push Docker image
         if: success()

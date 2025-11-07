@@ -94,7 +94,6 @@ jobs:
         if: success()
         run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}
 
-# Upload security reports as artifacts
       - name: Upload security reports
         uses: actions/upload-artifact@v4
         with:
@@ -104,8 +103,8 @@ jobs:
             trivy-report.json
             trivy-report.txt
           retention-days: 7
-      
-      # Send build info to Jenkins with full vulnerability details
+
+      # 12. Send full payload to Jenkins
       - name: Send build info to Jenkins
         if: always()
         env:
@@ -113,19 +112,17 @@ jobs:
           JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
         run: |
           echo "Preparing payload for Jenkins..."
-      
-          # Read full Trivy JSON report
+
+          # Null-safe full Trivy JSON
           TRIVY_JSON=$(cat trivy-report.json)
-      
-          # Generate human-readable summary (CRITICAL/HIGH/MEDIUM counts)
-          SUMMARY_TEXT=$(jq -r '
-            .Results | map(.Vulnerabilities[]) as $v |
-            "CRITICAL=" + ($v | map(select(.Severity=="CRITICAL")) | length | tostring) +
-            ", HIGH=" + ($v | map(select(.Severity=="HIGH")) | length | tostring) +
-            ", MEDIUM=" + ($v | map(select(.Severity=="MEDIUM")) | length | tostring)
-          ' trivy-report.json)
-      
-          # Build full payload with all details
+
+          # Human-readable summary
+          SUMMARY_TEXT=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[]] 
+                                | "CRITICAL=" + (map(select(.Severity=="CRITICAL")) | length | tostring)
+                                + ", HIGH=" + (map(select(.Severity=="HIGH")) | length | tostring)
+                                + ", MEDIUM=" + (map(select(.Severity=="MEDIUM")) | length | tostring)' trivy-report.json)
+
+          # Build full JSON payload
           PAYLOAD=$(jq -n \
             --arg commit "${{ github.sha }}" \
             --arg branch "${{ github.ref_name }}" \
@@ -145,13 +142,11 @@ jobs:
               pipeline_status: $pipeline_status,
               timestamp: $timestamp
             }')
-      
+
           echo "Final payload to Jenkins:"
           echo "$PAYLOAD" | jq .
-      
-          # Send payload to Jenkins webhook
+
+          # Send to Jenkins webhook
           curl -v -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD"
-      
-      

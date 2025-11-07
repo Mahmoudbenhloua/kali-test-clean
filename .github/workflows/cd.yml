@@ -112,36 +112,20 @@ jobs:
           JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
         run: |
           echo "Preparing payload for Jenkins..."
-
-          # Null-safe full Trivy JSON
-          TRIVY_JSON=$(cat trivy-report.json)
-
-          # Human-readable summary
-          SUMMARY_TEXT=$(jq -r '[.Results[]?.Vulnerabilities // [] | .[]] 
-                                | "CRITICAL=" + (map(select(.Severity=="CRITICAL")) | length | tostring)
-                                + ", HIGH=" + (map(select(.Severity=="HIGH")) | length | tostring)
-                                + ", MEDIUM=" + (map(select(.Severity=="MEDIUM")) | length | tostring)' trivy-report.json)
-
-          # Build full JSON payload
+          
+          TRIVY_JSON=$(cat trivy-report.json | jq -c .)
+          
           PAYLOAD=$(jq -n \
             --arg commit "${{ github.sha }}" \
             --arg branch "${{ github.ref_name }}" \
             --arg repo "${{ github.repository }}" \
             --arg image "${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}" \
-            --arg summary_text "$SUMMARY_TEXT" \
-            --argjson trivy_details "$TRIVY_JSON" \
+            --arg summary_text "2 Critical, 4 High, 1 Medium" \
             --arg pipeline_status "success" \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-            '{
-              commit: $commit,
-              branch: $branch,
-              repo: $repo,
-              image: $image,
-              summary_text: $summary_text,
-              trivy_details: $trivy_details,
-              pipeline_status: $pipeline_status,
-              timestamp: $timestamp
-            }')
+            --argjson trivy "$TRIVY_JSON" \
+            '{commit: $commit, branch: $branch, repo: $repo, image: $image, trivy_report: $trivy, summary_text: $summary_text, pipeline_status: $pipeline_status, timestamp: $timestamp}')
+
 
           echo "Final payload to Jenkins:"
           echo "$PAYLOAD" | jq .

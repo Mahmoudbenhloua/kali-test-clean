@@ -59,3 +59,4 @@ def raise_error():
     raise HTTPException(status_code=418, detail="I'm a teapot 🫖")
 
 
+# Custom 404 handler

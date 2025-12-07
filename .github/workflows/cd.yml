@@ -125,6 +125,6 @@ jobs:
       run: |
               echo "Triggering Jenkins..."
               curl -v -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
-                -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
+                -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/github-trigger-pipeline/invoke?token=github-ci-token" \
                 -H "Content-Type: application/json" \
                 -d "{\"commit\": \"${GITHUB_SHA}\", \"branch\": \"${GITHUB_REF_NAME}\"}"

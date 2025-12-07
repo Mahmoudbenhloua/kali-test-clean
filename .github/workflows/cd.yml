@@ -118,31 +118,12 @@ jobs:
         retention-days: 7
     
     # 12. Send full payload to Jenkins
-    - name: Send build info to Jenkins
+    - name: Trigger Jenkins Build
       if: always()
-      env:
-        JENKINS_USER: ${{ secrets.JENKINS_USER }}
-        JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
       run: |
-        echo "Preparing payload for Jenkins..."
-        
-        TRIVY_JSON=$(cat trivy-report.json | jq -c .)
-        
-        PAYLOAD=$(jq -n \
-          --arg commit "${{ github.sha }}" \
-          --arg branch "${{ github.ref_name }}" \
-          --arg repo "${{ github.repository }}" \
-          --arg image "${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }}" \
-          --arg summary_text "2 Critical, 4 High, 1 Medium" \
-          --arg pipeline_status "success" \
-          --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-          --argjson trivy "$TRIVY_JSON" \
-          '{commit: $commit, branch: $branch, repo: $repo, image: $image, trivy_report: $trivy, summary_text: $summary_text, pipeline_status: $pipeline_status, timestamp: $timestamp}')
-        
-        echo "Final payload to Jenkins:"
-        echo "$PAYLOAD" | jq .
-        
-        # Send to Jenkins webhook
         curl -v -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
           -H "Content-Type: application/json" \
-          -d "$PAYLOAD"
+          -d '{
+            "commit": "'${{ github.sha }}'",
+            "branch": "'${{ github.ref_name }}'"
+          }'

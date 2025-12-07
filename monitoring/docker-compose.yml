@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml  # Make sure the correct config is mapped
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3001:3000"  # Grafana will be available at http://localhost:3001
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+
+  # Your application service (if applicable)
+  # app:
+  #   build: .
+  #   ports:
+  #     - "5000:5000"
+  #   networks:
+  #     - monitoring
+  #   depends_on:
+  #     - prometheus
+
+networks:
+  monitoring:
+    driver: bridge

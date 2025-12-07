@@ -117,15 +117,14 @@ jobs:
           trivy-report.txt
         retention-days: 7
     
-    # 12. Send full payload to Jenkins
+        # 12. Send full payload to Jenkins
     - name: Trigger Jenkins Build
-      if: always()
       env:
-        JENKINS_USER: ${{ secrets.JENKINS_USER }}
-        JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+              JENKINS_USER: ${{ secrets.JENKINS_USER }}
+              JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
       run: |
-        curl -v \
-          -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
-          -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
-          -H "Content-Type: application/json" \
-          -d '{"trigger":"github"}'
+              echo "Triggering Jenkins..."
+              curl -v -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+                -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
+                -H "Content-Type: application/json" \
+                -d "{\"commit\": \"${GITHUB_SHA}\", \"branch\": \"${GITHUB_REF_NAME}\"}"

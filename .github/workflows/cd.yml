@@ -120,10 +120,12 @@ jobs:
     # 12. Send full payload to Jenkins
     - name: Trigger Jenkins Build
       if: always()
+      env:
+        JENKINS_USER: ${{ secrets.JENKINS_USER }}
+        JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
       run: |
-        curl -v -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
+        curl -v \
+          -u "$JENKINS_USER:$JENKINS_API_TOKEN" \
+          -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
           -H "Content-Type: application/json" \
-          -d '{
-            "commit": "'${{ github.sha }}'",
-            "branch": "'${{ github.ref_name }}'"
-          }'
+          -d '{"trigger":"github"}'

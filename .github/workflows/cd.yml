@@ -143,6 +143,6 @@ jobs:
         echo "$PAYLOAD" | jq .
         
         # Send to Jenkins webhook
-        curl -v -X POST "https://accusatorial-unslighted-merlin.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
+        curl -v -X POST "https://steffanie-renitent-unguardedly.ngrok-free.dev/generic-webhook-trigger/invoke?token=github-ci-token" \
           -H "Content-Type: application/json" \
           -d "$PAYLOAD"

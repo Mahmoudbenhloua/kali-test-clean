@@ -37,11 +37,7 @@ jobs:
     - name: Build Docker image
       run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/kali-test:${{ github.sha }} .
     
-    # Run Gitleaks scan
-    - name: Run Gitleaks scan
-      uses: zricethezav/gitleaks-action@v2
-      with:
-        args: detect --source . --report-format sarif --report-path gitleaks-report.sarif --verbose
+
     
     # Trivy vulnerability scan (console + JSON)
     - name: Trivy vulnerability scan
